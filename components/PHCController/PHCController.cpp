@@ -70,7 +70,7 @@ namespace esphome
                 uint8_t msg[content_length + 4];
                 msg[0] = address;
                 msg[1] = toggle_and_length;
-                read_array(msg + 2, content_length + 4); // read content and checksum
+                read_array(msg + 2, content_length + 2); // read content and checksum
 
                 // Read the checksum
                 uint16_t msg_checksum = msg[content_length + 3] << 8 | msg[content_length + 2];
