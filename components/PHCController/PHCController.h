@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 #include "util.h"
@@ -186,6 +187,16 @@ namespace esphome
              *
              */
             long last_message_time_ = 0;
+
+            /**
+             * @brief Receive buffer used for frame resync. On checksum/length
+             * errors only a single byte is shifted out instead of discarding
+             * the whole assumed frame, which allows the parser to recover
+             * from single corrupt bytes on the bus (e.g. from reflections due
+             * to missing/faulty termination resistors).
+             *
+             */
+            std::vector<uint8_t> rx_buffer_;
 
             /**
              * @brief Determines if states have been synced on start-up.
