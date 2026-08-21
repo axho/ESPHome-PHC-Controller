@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "esphome/core/log.h"
 #include "PHCController.h"
 
@@ -50,45 +51,76 @@ namespace esphome
             last_message_time_ = millis();
         }
 
+        // Maximum number of bytes read from the UART per loop() call. This
+        // bounds the time spent here so the shared ESPHome loop is never
+        // starved even if the bus keeps firing continuously. At 19200 baud
+        // this corresponds to roughly 33ms of bus traffic; the remainder
+        // stays queued in the UART hardware/driver buffer and is picked up
+        // on subsequent loop() calls.
+        static const size_t MAX_BYTES_PER_LOOP = 64;
+
         void PHCController::loop()
         {
+            // Only read a bounded amount of bytes per call, never drain the
+            // bus completely in one go - otherwise a continuously firing bus
+            // (e.g. a module retrying because it never gets an
+            // acknowledgement) would block loop() indefinitely.
+            size_t to_read = std::min(static_cast<size_t>(available()), MAX_BYTES_PER_LOOP);
+            for (size_t i = 0; i < to_read; i++)
+                rx_buffer_.push_back(read());
 
-            if (available())
+            // Try to extract as many complete, valid frames as possible from
+            // the buffer. On a length or checksum mismatch we do NOT discard
+            // the whole assumed frame - we only shift the buffer forward by a
+            // single byte and retry. This allows the parser to resynchronize
+            // after a single corrupt/spurious byte on the bus (e.g. caused by
+            // reflections from a missing/faulty termination resistor) instead
+            // of losing an entire frame's worth of following bytes.
+            while (rx_buffer_.size() >= 2)
             {
-                // Holds the abs. and relative address of the device
-                uint8_t address = read();
-
-                uint8_t toggle_and_length = read();
+                uint8_t address = rx_buffer_[0];
+                uint8_t toggle_and_length = rx_buffer_[1];
                 bool toggle = toggle_and_length & 0x80;            // Mask the MRB (toggle bit)
                 uint8_t content_length = toggle_and_length & 0x7F; // Mask everything except for the MSB (message length)
 
                 // Assert message length is plausible
                 if (content_length > 3)
-                    return;
+                {
+                    // Implausible length - this byte cannot be a valid frame
+                    // start. Shift forward by one byte and try again.
+                    rx_buffer_.erase(rx_buffer_.begin());
+                    continue;
+                }
 
-                // Read the actual message content
-                uint8_t msg[content_length + 4];
-                msg[0] = address;
-                msg[1] = toggle_and_length;
-                read_array(msg + 2, content_length + 2); // read content and checksum
+                size_t frame_length = static_cast<size_t>(content_length) + 4; // header(2) + content + checksum(2)
+
+                // Not enough data buffered yet for a full frame - wait for
+                // more bytes on a subsequent loop() call.
+                if (rx_buffer_.size() < frame_length)
+                    break;
 
                 // Read the checksum
-                uint16_t msg_checksum = msg[content_length + 3] << 8 | msg[content_length + 2];
+                uint16_t msg_checksum = (rx_buffer_[frame_length - 1] << 8) | rx_buffer_[frame_length - 2];
 
                 // Validate the checksum
-                uint16_t calculated_checksum = util::PHC_CRC(msg, content_length + 2); // crc for content and prefix
+                uint16_t calculated_checksum = util::PHC_CRC(rx_buffer_.data(), content_length + 2); // crc for content and prefix
 
                 if (calculated_checksum != msg_checksum)
                 {
-                    ESP_LOGW(TAG, "Recieved bad message (checksum missmatch)");
+                    ESP_LOGW(TAG, "Recieved bad message (checksum missmatch) - resyncing by 1 byte");
 
-                    // Skip the loop if the checksum is wrong
-                    return;
+                    // Shift forward by a single byte instead of discarding
+                    // the whole assumed frame, then retry parsing from there.
+                    rx_buffer_.erase(rx_buffer_.begin());
+                    continue;
                 }
 
                 last_message_time_ = millis();
-                process_command(&address, toggle, msg + 2, &content_length);
-                return;
+                process_command(&address, toggle, rx_buffer_.data() + 2, &content_length);
+
+                // Valid frame consumed - remove exactly this frame from the
+                // buffer and continue with whatever follows it.
+                rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + frame_length);
             }
 
             if (!states_synced_)
