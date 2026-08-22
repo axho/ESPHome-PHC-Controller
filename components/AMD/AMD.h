@@ -5,6 +5,7 @@
 #include "esphome/components/light/light_output.h"
 #include "../PHCController/util.h"
 #include <random>
+#include <string>
 
 namespace esphome
 {
@@ -55,6 +56,23 @@ namespace esphome
                 return false;
             };
 
+            /**
+             * @brief Get the display name of this entity, as configured in
+             * Home Assistant/ESPHome. Overridden by AMD_switch/AMD_light,
+             * since their name lives in different base classes
+             * (switch_::Switch vs. light::LightState) not visible through
+             * this base class pointer.
+             *
+             * @return const std::string& the entity's name, or a generic
+             * fallback if unavailable (e.g. an AMD_light whose LightState
+             * hasn't been set up yet).
+             */
+            virtual const std::string &get_name()
+            {
+                static const std::string unknown = "unbekannt";
+                return unknown;
+            }
+
         private:
             /**
              * @brief The entities target state which should be reached within the allowed retry time/count
@@ -99,6 +117,17 @@ namespace esphome
             {
                 AMD::write_state(state);
             }
+
+            /**
+             * @brief Explicitly resolve get_name() to the Switch entity's
+             * name. Needed because both AMD (via our new virtual) and
+             * switch_::Switch (via EntityBase) provide get_name() here -
+             * without this override the call would be ambiguous.
+             */
+            const std::string &get_name() override
+            {
+                return switch_::Switch::get_name();
+            }
         };
 
         /**
@@ -113,6 +142,29 @@ namespace esphome
                 auto traits = light::LightTraits();
                 traits.set_supported_color_modes({light::ColorMode::ON_OFF});
                 return traits;
+            }
+
+            /**
+             * @brief Capture the LightState reference as early as possible
+             * (at setup, not only on the first write_state call), so the
+             * name is available for logging/lookups right from boot.
+             */
+            void setup_state(light::LightState *state) override
+            {
+                light_state_ = state;
+            }
+
+            /**
+             * @brief The name lives on the LightState, not on this output
+             * itself. Fall back to a generic label if it isn't set yet
+             * (e.g. very early during boot).
+             */
+            const std::string &get_name() override
+            {
+                if (light_state_ != NULL)
+                    return light_state_->get_name();
+                static const std::string unknown = "unbekannt (Light)";
+                return unknown;
             }
 
             bool get_state() override
