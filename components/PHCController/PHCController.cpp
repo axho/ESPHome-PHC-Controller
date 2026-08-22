@@ -482,7 +482,7 @@ namespace esphome
             if (flow_control_pin_ != NULL)
             {
                 flow_control_pin_->digital_write(true);
-                delay(FLOW_PIN_PULL_HIGH_DELAY);
+                delayMicroseconds(FLOW_PIN_PULL_HIGH_DELAY);
             }
 
             // Write data to the bus
@@ -497,7 +497,7 @@ namespace esphome
             // Pull the write pin LOW
             if (flow_control_pin_ != NULL)
             {
-                delay(FLOW_PIN_PULL_LOW_DELAY);
+                delayMicroseconds(FLOW_PIN_PULL_LOW_DELAY);
                 flow_control_pin_->digital_write(false);
             }
         }
