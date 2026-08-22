@@ -277,16 +277,18 @@ namespace esphome
                 else
                 {
                     uint8_t action = message[0] & 0x0F;
+                    auto emd_it = emds_.find(util::key(device_id, channel));
+                    const char *entity_name = (emd_it != emds_.end()) ? emd_it->second->get_name().c_str() : "nicht konfiguriert";
 
-                    ESP_LOGD(TAG, "EMD [DIP %d, Kanal %d]: %s", device_id, channel, emd_function_name(action));
+                    ESP_LOGD(TAG, "EMD [DIP %d, Kanal %d] \"%s\": %s", device_id, channel, entity_name, emd_function_name(action));
 
                     // Send extra (speedy) acknowledgement, seems to help
                     send_acknowledgement(*device_class_id, toggle);
 
                     //  Find the switch and set the state
-                    if (emds_.count(util::key(device_id, channel)))
+                    if (emd_it != emds_.end())
                     {
-                        auto *emd = emds_[util::key(device_id, channel)];
+                        auto *emd = emd_it->second;
                         if (action == 0x02) // ON
                             emd->publish_state(true);
                         if (action == 0x07 || action == 0x03 || action == 0x05) // OFF
@@ -325,6 +327,7 @@ namespace esphome
 
                             // Mask the channel and publish states accordingly
                             bool state = channels & (0x1 << i);
+                            ESP_LOGD(TAG, "AMD [DIP %d, Kanal %d] \"%s\": -> %s", device_id, i, amd->get_name().c_str(), state ? "AN" : "AUS");
                             amd->publish_state(state);
                             handled = true;
                         }
@@ -338,6 +341,7 @@ namespace esphome
                             // Only accepting a single change will increase the chance of correct acknowledgement
                             if (jrm->current_operation != jrm->get_target_operation())
                             {
+                                ESP_LOGD(TAG, "JRM [DIP %d, Kanal %d] \"%s\": Operation abgeschlossen", device_id, i, jrm->get_name().c_str());
                                 jrm->current_operation = jrm->get_target_operation();
                                 jrm->publish_state();
                                 handled = true;
