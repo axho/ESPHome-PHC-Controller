@@ -278,21 +278,40 @@ namespace esphome
                 {
                     uint8_t action = message[0] & 0x0F;
                     auto emd_it = emds_.find(util::key(device_id, channel));
-                    const char *entity_name = (emd_it != emds_.end()) ? emd_it->second->get_name().c_str() : "nicht konfiguriert";
 
-                    ESP_LOGD(TAG, "EMD [DIP %d, Kanal %d] \"%s\": %s", device_id, channel, entity_name, emd_function_name(action));
-
-                    // Send extra (speedy) acknowledgement, seems to help
+                    // Send extra (speedy) acknowledgement, seems to help.
+                    // This ALWAYS happens, regardless of dedup below - the
+                    // bus protocol requires it every time, and skipping it
+                    // would only cause the sender to retransmit more.
                     send_acknowledgement(*device_class_id, toggle);
 
-                    //  Find the switch and set the state
                     if (emd_it != emds_.end())
                     {
                         auto *emd = emd_it->second;
-                        if (action == 0x02) // ON
-                            emd->publish_state(true);
-                        if (action == 0x07 || action == 0x03 || action == 0x05) // OFF
-                            emd->publish_state(false);
+                        bool new_state = emd->state; // no-op fallback: keep current on unrecognized action
+                        if (action == 0x02)           // ON
+                            new_state = true;
+                        else if (action == 0x07 || action == 0x03 || action == 0x05) // OFF
+                            new_state = false;
+
+                        // Maintained contacts (window/door contacts, twilight
+                        // sensors) keep resending the same event as long as
+                        // the physical condition holds, which can mean
+                        // hundreds of identical messages per minute. We
+                        // still ack every single one (required above), but
+                        // only log and publish_state when the state
+                        // actually changes - this is what the person
+                        // actually cares about seeing, and avoids flooding
+                        // the log / re-publishing an unchanged state.
+                        if (new_state != emd->state)
+                        {
+                            ESP_LOGD(TAG, "EMD [DIP %d, Kanal %d] \"%s\": %s", device_id, channel, emd->get_name().c_str(), emd_function_name(action));
+                            emd->publish_state(new_state);
+                        }
+                        else
+                        {
+                            ESP_LOGV(TAG, "EMD [DIP %d, Kanal %d] \"%s\": %s (unveraendert, unterdrueckt)", device_id, channel, emd->get_name().c_str(), emd_function_name(action));
+                        }
                         return;
                     }
 
