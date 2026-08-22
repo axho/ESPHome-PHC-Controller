@@ -199,6 +199,15 @@ namespace esphome
             std::vector<uint8_t> rx_buffer_;
 
             /**
+             * @brief Bytes discarded since the last successfully parsed
+             * frame, used to give a meaningful diagnostic log when more than
+             * the single expected turnaround byte had to be skipped (i.e.
+             * an actual desync, not the routine 1-byte gap between frames).
+             *
+             */
+            std::vector<uint8_t> skipped_bytes_;
+
+            /**
              * @brief Determines if states have been synced on start-up.
              *
              */
