@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <string>
 #include "esphome/core/log.h"
 #include "PHCController.h"
 
@@ -16,6 +17,27 @@ namespace esphome
     {
 
         static const char *TAG = "phc_controller";
+
+        static const char *emd_function_name(uint8_t action)
+        {
+            switch (action)
+            {
+            case 0x02:
+                return "ein>0 (Taster gedrueckt)";
+            case 0x03:
+                return "aus<0 (kurz losgelassen)";
+            case 0x04:
+                return "ein>1 (>1s gehalten)";
+            case 0x05:
+                return "aus>1 (losgelassen nach >1s)";
+            case 0x06:
+                return "ein>2 (>2s gehalten)";
+            case 0x07:
+                return "aus (losgelassen)";
+            default:
+                return "unbekannt";
+            }
+        }
 
         void PHCController::setup()
         {
@@ -96,6 +118,7 @@ namespace esphome
                     {
                         // Implausible length - this byte cannot be a valid
                         // frame start. Shift forward by one byte and retry.
+                        skipped_bytes_.push_back(rx_buffer_[0]);
                         rx_buffer_.erase(rx_buffer_.begin());
                         continue;
                     }
@@ -116,16 +139,71 @@ namespace esphome
 
                     if (calculated_checksum != msg_checksum)
                     {
-                        ESP_LOGW(TAG, "Recieved bad message (checksum missmatch) - resyncing by 1 byte");
+                        // On this bus a single 0x00 turnaround byte between
+                        // frames is normal, not exceptional - this path is
+                        // hit on almost every frame purely because of that.
+                        // We don't log here directly; instead we collect the
+                        // skipped bytes and only report them once we find
+                        // the next valid frame, so we can tell a routine
+                        // 1-byte gap apart from an actual desync further
+                        // down (see below).
+                        skipped_bytes_.push_back(rx_buffer_[0]);
 
                         // Shift forward by a single byte instead of
                         // discarding the whole assumed frame, then retry
                         // parsing from there.
                         rx_buffer_.erase(rx_buffer_.begin());
+
+                        // Safety valve: if we never find a valid frame (e.g.
+                        // sustained line noise), don't let this grow
+                        // unbounded - report and reset periodically.
+                        if (skipped_bytes_.size() >= 32)
+                        {
+                            std::string hex_dump;
+                            char byte_str[4];
+                            for (uint8_t b : skipped_bytes_)
+                            {
+                                snprintf(byte_str, sizeof(byte_str), "%02X ", b);
+                                hex_dump += byte_str;
+                            }
+                            ESP_LOGW(TAG, "Unable to resync after %zu bytes, discarding: %s", skipped_bytes_.size(), hex_dump.c_str());
+                            skipped_bytes_.clear();
+                        }
                         continue;
                     }
 
+                    // Valid frame found. If we had to skip more than the
+                    // single byte that's normal on this bus between frames,
+                    // that's worth surfacing - it points at real bus noise
+                    // rather than the routine turnaround gap.
+                    if (skipped_bytes_.size() > 1)
+                    {
+                        std::string hex_dump;
+                        char byte_str[4];
+                        for (uint8_t b : skipped_bytes_)
+                        {
+                            snprintf(byte_str, sizeof(byte_str), "%02X ", b);
+                            hex_dump += byte_str;
+                        }
+                        ESP_LOGW(TAG, "Resynced after %zu unexpected bytes (bus noise?): %s", skipped_bytes_.size(), hex_dump.c_str());
+                    }
+                    skipped_bytes_.clear();
+
                     last_message_time_ = millis();
+
+                    {
+                        uint8_t log_device_id = address & 0x1F;
+                        uint8_t log_device_class = address & 0xE0;
+                        std::string content_hex;
+                        char byte_str[4];
+                        for (size_t i = 0; i < content_length; i++)
+                        {
+                            snprintf(byte_str, sizeof(byte_str), "%02X ", rx_buffer_[2 + i]);
+                            content_hex += byte_str;
+                        }
+                        ESP_LOGD(TAG, "RX class=0x%02X DIP=%d toggle=%d content=[%s]", log_device_class, log_device_id, toggle, content_hex.c_str());
+                    }
+
                     process_command(&address, toggle, rx_buffer_.data() + 2, &content_length);
 
                     // Valid frame consumed - remove exactly this frame from
@@ -200,6 +278,8 @@ namespace esphome
                 {
                     uint8_t action = message[0] & 0x0F;
 
+                    ESP_LOGD(TAG, "EMD [DIP %d, Kanal %d]: %s", device_id, channel, emd_function_name(action));
+
                     // Send extra (speedy) acknowledgement, seems to help
                     send_acknowledgement(*device_class_id, toggle);
 
@@ -232,6 +312,8 @@ namespace esphome
                 // Check for Acknowledgement
                 if (message[0] == 0x00)
                 {
+                    ESP_LOGD(TAG, "AMD/JRM [DIP %d]: Status-Ack, Kanal-Bits=0x%02X", device_id, message[1]);
+
                     bool handled = false;
                     uint8_t channels = message[1];
                     for (uint8_t i = 0; i < 8; i++)
@@ -387,7 +469,10 @@ namespace esphome
 
             // skip writing if the bus is busy and rely on retransmits
             if (allow_weak_operation && available())
+            {
+                ESP_LOGW(TAG, "Skipped write (dest 0x%02X): bus busy, relying on retransmit", data[0]);
                 return;
+            }
 
             // Pull the write pin HIGH
             if (flow_control_pin_ != NULL)
