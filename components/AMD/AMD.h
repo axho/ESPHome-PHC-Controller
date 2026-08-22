@@ -63,14 +63,18 @@ namespace esphome
              * (switch_::Switch vs. light::LightState) not visible through
              * this base class pointer.
              *
-             * @return const std::string& the entity's name, or a generic
-             * fallback if unavailable (e.g. an AMD_light whose LightState
-             * hasn't been set up yet).
+             * By value, not by reference: the underlying get_name()
+             * implementations (Switch/LightState) return std::string by
+             * value, so returning a reference here would bind to a
+             * temporary and dangle (caught by -Wreturn-local-addr).
+             *
+             * @return std::string the entity's name, or a generic fallback
+             * if unavailable (e.g. an AMD_light whose LightState hasn't
+             * been set up yet).
              */
-            virtual const std::string &get_name()
+            virtual std::string get_name()
             {
-                static const std::string unknown = "unbekannt";
-                return unknown;
+                return "unbekannt";
             }
 
         private:
@@ -124,7 +128,7 @@ namespace esphome
              * switch_::Switch (via EntityBase) provide get_name() here -
              * without this override the call would be ambiguous.
              */
-            const std::string &get_name() override
+            std::string get_name() override
             {
                 return switch_::Switch::get_name();
             }
@@ -159,12 +163,11 @@ namespace esphome
              * itself. Fall back to a generic label if it isn't set yet
              * (e.g. very early during boot).
              */
-            const std::string &get_name() override
+            std::string get_name() override
             {
                 if (light_state_ != NULL)
                     return light_state_->get_name();
-                static const std::string unknown = "unbekannt (Light)";
-                return unknown;
+                return "unbekannt (Light)";
             }
 
             bool get_state() override
