@@ -9,8 +9,14 @@
 #include "../EMD/EMD_light.h"
 #include "../JRM/JRM.h"
 
-#define FLOW_PIN_PULL_HIGH_DELAY 0
-#define FLOW_PIN_PULL_LOW_DELAY 0
+// Time given to the RS-485 transceiver to switch direction before/after
+// transmitting, in MICROSECONDS (see write_array in PHCController.cpp,
+// which now uses delayMicroseconds - previously this used delay(), i.e.
+// milliseconds, which made any non-zero value here far too slow for this
+// bus's timing requirements). Start small (e.g. 50-200) and increase only
+// if needed; this bus needs sub-millisecond turnaround.
+#define FLOW_PIN_PULL_HIGH_DELAY 100
+#define FLOW_PIN_PULL_LOW_DELAY 100
 
 #define TIMING_DELAY 150 // 250us on original PHC
 // This value has been adjusted, such that the measured delay is roughly equal to 250us. This has changed with arduino core 2.0+
