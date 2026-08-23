@@ -33,18 +33,16 @@ namespace esphome
                         // reliably against this same bus - does NOT write
                         // anything back to the module here; it only corrects
                         // its own toggle-bit bookkeeping and accepts defeat.
-                        // Our previous code additionally called
-                        // write_state(get_state()) to force the module back
-                        // to its old state - but if the ORIGINAL command
-                        // actually reached the module and only the
-                        // acknowledgement was lost, this would actively
-                        // revert a successful change, which matches the
-                        // "light turns on and immediately back off" symptom.
-                        // We still correct our own displayed HA state, since
-                        // we genuinely don't know whether the command
-                        // succeeded - but we no longer fight the module by
-                        // sending a further command it didn't ask for.
+                        // We do the same: reset our bookkeeping directly
+                        // (NOT via write_state(), which would also transmit
+                        // on the bus - that was the bug in the previous
+                        // version of this fix, which never terminated the
+                        // retry loop and spammed this warning every single
+                        // loop() call forever).
                         ESP_LOGW(TAG, "Device not responding! Is the device connected to the bus? (DIP: %i)", address);
+                        target_state = get_state();
+                        resend_counter = 0;
+                        last_request = millis();
                         publish_state(get_state());
                     }
                 }
