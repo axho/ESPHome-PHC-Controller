@@ -130,11 +130,16 @@ namespace esphome
             void send_acknowledgement(uint8_t address, bool toggle);
 
             /**
-             * @brief Write a configuration message for a AMD/JRM module to the bus.
+             * @brief Write a configuration message for a AMD/JRM/DIM module to the bus.
+             * The response format is identical across these module types (per the PHC
+             * protocol and confirmed against OpenHAB's reference implementation) -
+             * only the address class byte differs.
              *
-             * @param address The address of the module
+             * @param address The DIP/relative address of the module
+             * @param module_class The device class byte to OR with the address
+             * (AMD_MODULE_ADDRESS by default; pass DIM_MODULE_ADDRESS for dimmers)
              */
-            void send_amd_config(uint8_t address);
+            void send_amd_config(uint8_t address, uint8_t module_class = AMD_MODULE_ADDRESS);
 
             /**
              * @brief Write a configuration message for a EMD module to the bus.
