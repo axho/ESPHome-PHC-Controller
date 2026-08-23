@@ -16,6 +16,7 @@
 #define EMD_MODULE_ADDRESS 0x00
 #define AMD_MODULE_ADDRESS 0x40
 #define JRM_MODULE_ADDRESS 0x40
+#define DIM_MODULE_ADDRESS 0xA0
 
 namespace esphome
 {
