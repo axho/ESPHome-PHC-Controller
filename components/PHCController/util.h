@@ -3,7 +3,14 @@
 #include <stdint.h>
 #include "esphome/core/hal.h"
 
-#define RESEND_TIMEOUT 10
+// Time between resend attempts for outgoing commands (AMD), in milliseconds.
+// OpenHAB's PHC binding - developed against and running reliably on this
+// exact same PHC bus - uses 60ms here (SEND_RETRY_TIME_MILLIS), giving a
+// total window of RESEND_TIMEOUT * MAX_RESENDS = 1200ms before giving up.
+// Our previous value of 10ms (200ms total) was too short for a bus that can
+// stay busy for over a second during traffic bursts, causing commands to
+// be abandoned - and reverted - before they had a real chance to succeed.
+#define RESEND_TIMEOUT 60
 #define MAX_RESENDS 20
 
 #define EMD_MODULE_ADDRESS 0x00
