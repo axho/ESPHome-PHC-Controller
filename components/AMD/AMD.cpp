@@ -29,10 +29,23 @@ namespace esphome
                     }
                     else
                     {
-                        // Reset the state and log a warning, device cannot be reached
+                        // Give up. OpenHAB's PHC binding - which runs
+                        // reliably against this same bus - does NOT write
+                        // anything back to the module here; it only corrects
+                        // its own toggle-bit bookkeeping and accepts defeat.
+                        // Our previous code additionally called
+                        // write_state(get_state()) to force the module back
+                        // to its old state - but if the ORIGINAL command
+                        // actually reached the module and only the
+                        // acknowledgement was lost, this would actively
+                        // revert a successful change, which matches the
+                        // "light turns on and immediately back off" symptom.
+                        // We still correct our own displayed HA state, since
+                        // we genuinely don't know whether the command
+                        // succeeded - but we no longer fight the module by
+                        // sending a further command it didn't ask for.
                         ESP_LOGW(TAG, "Device not responding! Is the device connected to the bus? (DIP: %i)", address);
                         publish_state(get_state());
-                        write_state(get_state());
                     }
                 }
             }
