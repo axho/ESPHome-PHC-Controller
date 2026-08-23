@@ -375,6 +375,31 @@ namespace esphome
                 return;
             }
 
+            if (device_class == DIM_MODULE_ADDRESS)
+            {
+                // Initial configuration request message. Dimmer modules
+                // apparently don't accept a plain acknowledgement here -
+                // they keep re-requesting configuration forever until they
+                // get a real config response, exactly like AMD/JRM modules.
+                // OpenHAB's PHC binding confirms this: it uses the identical
+                // config response for AM, JRM, and DIM modules, only the
+                // address class differs - see send_amd_config above.
+                if (message[0] == 0xFF)
+                {
+                    delayMicroseconds(TIMING_DELAY);
+                    send_amd_config(device_id, DIM_MODULE_ADDRESS);
+                    return;
+                }
+
+                // There is no dedicated DIM entity/component yet (no
+                // brightness control from Home Assistant), so we can't
+                // interpret or publish a meaningful state for other
+                // messages from this module. We still acknowledge them so
+                // the module doesn't retransmit unnecessarily.
+                send_acknowledgement(*device_class_id, toggle);
+                return;
+            }
+
             // Send default acknowledgement
             send_acknowledgement(*device_class_id, toggle);
         }
@@ -391,11 +416,11 @@ namespace esphome
             write_array(message, 5, true);
         }
 
-        void PHCController::send_amd_config(uint8_t id)
+        void PHCController::send_amd_config(uint8_t id, uint8_t module_class)
         {
-            ESP_LOGI(TAG, "Configuring Module (AMD/JRM): [DIP: %i]", id);
+            ESP_LOGI(TAG, "Configuring Module (AMD/JRM/DIM, class 0x%02X): [DIP: %i]", module_class, id);
 
-            uint8_t message[7] = {static_cast<uint8_t>(AMD_MODULE_ADDRESS | id), 0x03, 0xFE, 0x00, 0xFF, 0x00, 0x00};
+            uint8_t message[7] = {static_cast<uint8_t>(module_class | id), 0x03, 0xFE, 0x00, 0xFF, 0x00, 0x00};
 
             short crc = util::PHC_CRC(message, 5);
             message[5] = static_cast<uint8_t>(crc & 0xFF);
