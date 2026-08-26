@@ -15,8 +15,11 @@
 // milliseconds, which made any non-zero value here far too slow for this
 // bus's timing requirements). Start small (e.g. 50-200) and increase only
 // if needed; this bus needs sub-millisecond turnaround.
-#define FLOW_PIN_PULL_HIGH_DELAY 100
-#define FLOW_PIN_PULL_LOW_DELAY 100
+// FLOW_PIN_PULL_HIGH_DELAY / FLOW_PIN_PULL_LOW_DELAY were removed: ESPHome's
+// ESP-IDF UART driver now handles RS485 direction switching automatically
+// in hardware (UART_MODE_RS485_HALF_DUPLEX) once flow_control_pin is set on
+// the `uart:` component - our own manual pin toggling in write_array() was
+// racing against it and has been removed. See write_array() for details.
 
 #define TIMING_DELAY 150 // 250us on original PHC
 // This value has been adjusted, such that the measured delay is roughly equal to 250us. This has changed with arduino core 2.0+
@@ -158,10 +161,19 @@ namespace esphome
             HighFrequencyLoopRequester high_freq_;
 
             /**
-             * @brief The flow control pin used by this controller
+             * @brief The flow control pin used by this controller.
              *
+             * NOTE: As of the ESP-IDF flow-control fix, this pin is no
+             * longer actively toggled by our own code during writes (see
+             * write_array() in the .cpp) - ESPHome's ESP-IDF UART driver
+             * handles RS485 half-duplex direction switching in hardware
+             * automatically once a flow_control_pin is configured on the
+             * `uart:` component itself. This member is kept only for
+             * dump_config() / backwards compatibility with existing YAML.
+             * Explicitly defaulted to nullptr (unlike before) so its state
+             * is well-defined even if never configured.
              */
-            GPIOPin *flow_control_pin_;
+            GPIOPin *flow_control_pin_ = nullptr;
 
             /**
              * @brief The toggle map used by this controller
