@@ -60,11 +60,13 @@ namespace esphome
             uart_set_rx_full_threshold(hw_serial_number, 1);
 #endif
 
-            if (flow_control_pin_ != NULL)
-            {
-                flow_control_pin_->setup();
-                flow_control_pin_->digital_write(false);
-            }
+            // NOTE: flow_control_pin_ is intentionally not set up or driven
+            // here anymore - see write_array() for why. ESPHome's ESP-IDF
+            // UART driver already claims and manages this GPIO in hardware
+            // (UART_MODE_RS485_HALF_DUPLEX) once flow_control_pin is
+            // configured on the `uart:` component; a second, independent
+            // GPIOPin::setup()/digital_write() from here would only risk
+            // reconfiguring or fighting over the same physical pin.
             high_freq_.start();
 
             // Delay setup from here, since bus might be busy from ESP init.
@@ -522,28 +524,37 @@ namespace esphome
                 return;
             }
 
-            // Pull the write pin HIGH
-            if (flow_control_pin_ != NULL)
-            {
-                flow_control_pin_->digital_write(true);
-                delayMicroseconds(FLOW_PIN_PULL_HIGH_DELAY);
-            }
+            // NOTE: We no longer manually toggle flow_control_pin_ here.
+            // ESPHome's ESP-IDF UART driver, when a flow_control_pin is
+            // configured on the `uart:` component, puts the UART hardware
+            // into UART_MODE_RS485_HALF_DUPLEX. In that mode the driver
+            // itself automatically asserts the RTS/flow-control pin the
+            // instant data is written to the TX FIFO, and de-asserts it the
+            // instant the last bit has physically gone out - all handled in
+            // the UART interrupt, with far tighter timing than anything we
+            // could do here in software.
+            //
+            // Manually driving the same physical pin from here as well (as
+            // the old code did) meant two independent mechanisms - the
+            // hardware's automatic interrupt-driven toggling and our own
+            // digital_write() calls - were both trying to control the same
+            // GPIO. That's a race condition, and a very plausible
+            // explanation for reception being inconsistent/unreliable in a
+            // way that had nothing to do with bus wiring, A/B polarity, or
+            // termination/bias jumpers - all of which we'd already ruled
+            // out one by one before finding this.
 
             // Write data to the bus
             UARTDevice::write_array(data, len);
 
-            // Flush everything out before pulling the flow control pin low
+            // Flush everything out so the hardware has actually finished
+            // sending (and, per the above, already released the bus back to
+            // receive mode) before we return.
             UARTDevice::flush();
 
-            // safety delay to prevent clashing with repsonses
+            // small safety delay to avoid catching our own tail-end
+            // reflections as if they were a response
             delay(1);
-
-            // Pull the write pin LOW
-            if (flow_control_pin_ != NULL)
-            {
-                delayMicroseconds(FLOW_PIN_PULL_LOW_DELAY);
-                flow_control_pin_->digital_write(false);
-            }
         }
     } // namespace phc_controller
 } // namespace esphome
